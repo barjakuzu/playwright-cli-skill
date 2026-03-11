@@ -128,15 +128,42 @@ The custom skill doesn't find more bugs. It finds them **with less noise and few
 
 ## Playwright CLI vs Chrome Extension
 
-We also compared Playwright CLI against the Claude-in-Chrome browser extension for QA:
+We also compared Playwright CLI (with custom skill) against the [Claude-in-Chrome](https://chromewebstore.google.com/detail/claude-in-chrome/flkfmibmamgolkkoeapdmcnikmhpmjgd) browser extension for QA, using the same test page and prompt. All runs used sandbox mode (no memory, clean session).
 
-| Metric | Playwright CLI | Chrome Extension |
-|--------|:-:|:-:|
-| **Bugs found** | **18 / 21** | 12 / 21 |
-| **Time** | **7m 32s** | 9m 13s |
-| **Tokens** | **55K** | 75K |
+### Results
 
-Playwright CLI found more bugs in less time with fewer tokens. The `eval` command gives surgical access to DOM properties, CSS values, and aria attributes that the extension's accessibility tree approach can miss.
+| Metric | Playwright CLI (custom) | Playwright CLI (official) | Chrome Extension |
+|--------|:-:|:-:|:-:|
+| **True Positives** | **19 / 21 (90%)** | **19 / 21 (90%)** | 13 / 21 (62%) |
+| **False Positives** | **3** | 9 | 12 |
+| **Precision** | **86%** | 68% | 52% |
+| **Recall** | **90%** | **90%** | 62% |
+| **Time** | 3m 29s | 3m 30s | 6m 29s |
+| **Tokens** | **43K** | 52K | 53K |
+
+### What Chrome Extension missed (8 bugs)
+
+| Bug | Why missed |
+|-----|-----------|
+| Typo "Succesfully" in success message | Not detected at all |
+| Wizard step indicator desyncs on Back | Reported different issue ("all steps visible") |
+| Modal overlay click-to-close broken | Not detected |
+| Modal focus trap missing | Reported "focus goes to body on close" (different bug) |
+| Badge low contrast (#bbf7d0 on #dcfce7) | Not detected |
+| Error div missing aria-live | Reported wrong element ("status badge") |
+| Counter desync on double-load | Reported "counter not accessible" (different bug) |
+| Step 2 data loss on Back | Not detected |
+
+### Chrome Extension false positives (12)
+
+Reported issues not in the bug manifest: form uses GET method, status header missing sort indicator, "no drag event handlers" (factually wrong), all wizard steps visible, no field validation, missing role=dialog, close button no aria-label, focus goes to body on close, counter not programmatically accessible, grid uses fixed columns, phone input not type=tel, status badge missing aria-live.
+
+### Why Playwright CLI wins for QA
+
+1. **`eval` is surgical** — directly queries DOM properties, CSS values, computed styles, aria attributes
+2. **Viewport resizing is native** — `resize 375 812` tests responsive bugs reliably
+3. **Source analysis** — can read and analyze full page source to find logic bugs in JavaScript
+4. **Lower token cost** — codegen suppression + eval-over-snapshot means more budget for actual testing
 
 ### When Chrome Extension is better
 
