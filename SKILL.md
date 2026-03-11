@@ -150,4 +150,4 @@ playwright-cli eval "document.querySelector('#finish h4')?.textContent"  # check
 * **Test generation** [references/test-generation.md](references/test-generation.md)
 * **Tracing** [references/tracing.md](references/tracing.md)
 * **Video recording** [references/video-recording.md](references/video-recording.md)
-* **QA workflow** [references/qa-workflow.md](references/qa-workflow.md)
+
