@@ -1,65 +1,68 @@
 # Playwright CLI Skill for Claude Code
 
-A [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) that supercharges browser automation with [Playwright CLI](https://github.com/microsoft/playwright-cli). Adds token-efficient workflows and ready-to-use recipes for common automation tasks.
+A [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) that adds token-efficient workflows on top of [Playwright CLI](https://github.com/microsoft/playwright-cli) for browser automation.
 
-## How This Relates to the Official Playwright CLI
+## What's Different from the Official Skill
 
-This is **not** a fork or replacement of [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli). The official CLI is the underlying binary — you still need it installed. This repo is a **Claude Code skill layer** on top of it.
+The official `playwright-cli install --skills` gives Claude a SKILL.md + 7 reference files. This repo uses the **same reference files** but replaces the SKILL.md with one that adds:
 
-```
-┌─────────────────────────────────┐
-│  This Skill (SKILL.md)          │  ← Tells Claude HOW to use the CLI efficiently
-│  - Token-efficiency rules       │
-│  - Eval-over-snapshot patterns  │
-│  - Recipes & references         │
-├─────────────────────────────────┤
-│  Playwright CLI (official)      │  ← The actual browser automation binary
-│  github.com/microsoft/          │
-│  playwright-cli                 │
-├─────────────────────────────────┤
-│  Playwright (engine)            │  ← Browser automation framework
-└─────────────────────────────────┘
-```
+1. **Codegen suppression** — auto-creates `{"codegen":"none"}` config to skip JS code blocks from every command output
+2. **Eval-over-snapshot rules** — enforces `eval` for verification instead of expensive DOM snapshots
+3. **Command chaining** — instructs Claude to use `&&` to reduce tool call overhead
+4. **Snapshot discipline** — only snapshot when element refs are needed, never for verification
+5. **Arrow function ban in eval** — prevents parse errors from `=>` and `...` syntax
+6. **Drag-and-drop workaround** — uses JS simulation via `eval` since built-in `drag` is buggy
+7. **Named session guidance** — isolate projects with `PLAYWRIGHT_CLI_SESSION` or `-s=name`
 
-**Without this skill**, Claude Code can use Playwright CLI but wastes tokens on full DOM snapshots, reads unnecessary codegen output, and takes an unstructured approach to testing.
+The reference files (`references/*.md`) are identical to what ships with the official install.
 
-**With this skill**, Claude follows token-efficient patterns, uses `eval` over `snapshot` for verification, and suppresses codegen output.
+## Benchmark
 
-## What This Adds
+We tested custom skill, official skill, and Chrome extension against a page with 21 intentional bugs across 10 sections. All runs used **sandbox mode** — no memory, no prior context, clean temp directory, clean HTML with no code comments hinting at bugs.
 
-The official `playwright-cli install --skills` gives Claude browser commands and reference docs. This skill adds **7 token-efficiency rules** in the main SKILL.md that change how Claude uses those commands:
+| Metric | Custom Skill | Official Skill | Chrome Extension |
+|--------|:-:|:-:|:-:|
+| **True Positives** | **19 / 21 (90%)** | **19 / 21 (90%)** | 13 / 21 (62%) |
+| **False Positives** | **3** | 9 | 12 |
+| **Precision** | **86%** | 68% | 52% |
+| **Time** | 3m 29s | 3m 30s | 6m 29s |
+| **Tokens** | **43K** | 52K | 53K |
 
-| What | Official skill alone | With this skill |
-|------|:-:|:-:|
-| Codegen output | Included (extra tokens) | Suppressed via config |
-| Verification | Snapshots (expensive) | `eval` expressions (cheap) |
-| Command calls | One per tool call | Chained with `&&` |
-| Arrow functions in eval | Used (causes parse errors) | Explicitly banned |
-| Drag-and-drop | Built-in `drag` (buggy) | JS simulation via `eval` |
-| Snapshot reads | Frequent | Only when refs needed |
+### Custom vs Official Skill
 
-### Token Savings
+Both found the same 19 bugs and missed the same 2. The difference is noise: the official skill reported 9 false positives (missing validation, misleading cursor styles, aria-label suggestions, etc.). The custom skill's token rules kept it focused — only 3 false positives, 17% fewer tokens.
 
-The rules cut token usage by ~17-20%:
+**The custom skill doesn't find more bugs. It finds them with less noise and fewer tokens.**
 
-- **Codegen suppression** — `{"codegen":"none"}` skips JS code blocks from every command output
-- **`eval` over `snapshot`** — `eval "document.querySelector('.success')?.textContent"` instead of reading full DOM trees
-- **Command chaining** — `fill e1 "text" && click e3` in one Bash call
-- **Snapshot discipline** — only snapshot when you need element refs, never for verification
+### Playwright CLI vs Chrome Extension
+
+Chrome extension missed 8 bugs that Playwright CLI caught:
+
+| Missed Bug | Why |
+|------------|-----|
+| Typo "Succesfully" in success message | Not detected |
+| Wizard step indicator desyncs on Back | Reported wrong issue |
+| Modal overlay click-to-close broken | Not detected |
+| Modal focus trap missing | Reported different bug |
+| Badge low contrast (#bbf7d0 on #dcfce7) | Not detected |
+| Error div missing aria-live | Reported wrong element |
+| Counter desync on double-load | Reported different bug |
+| Step 2 data loss on Back | Not detected |
+
+Chrome also reported 12 false positives including factually incorrect claims like "no drag event handlers attached."
+
+**Why Playwright CLI wins:** `eval` gives surgical DOM access (properties, computed styles, aria attributes). Viewport resizing is native. Source code analysis catches logic bugs. Lower token cost leaves more budget for actual testing.
+
+**When Chrome Extension is better:** pages behind SSO/OAuth (uses your real session), testing browser extensions, visual verification by a human, quick one-off checks with no setup.
 
 ## Install
 
 ```bash
-# Clone
 git clone https://github.com/barjakuzu/playwright-cli-skill.git
-
-# Copy to Claude Code skills
 cp -r playwright-cli-skill ~/.claude/skills/playwright-cli
 ```
 
-### Prerequisites
-
-Install Playwright CLI ([official repo](https://github.com/microsoft/playwright-cli)):
+Requires [Playwright CLI](https://github.com/microsoft/playwright-cli):
 
 ```bash
 npm install -g @anthropic-ai/playwright-cli
@@ -67,167 +70,38 @@ npm install -g @anthropic-ai/playwright-cli
 
 ## Usage
 
-In Claude Code, just say:
-
 ```
 Use /playwright-cli to test my web app at http://localhost:3000
 ```
 
-Or invoke it directly:
-
-```
-/playwright-cli
-```
-
 The skill activates automatically when you ask Claude to navigate websites, fill forms, take screenshots, or test web apps.
-
-## Skill Structure
-
-```
-~/.claude/skills/playwright-cli/
-├── SKILL.md                          # Main skill definition + token rules
-└── references/
-    ├── test-generation.md            # Auto-generate Playwright tests
-    ├── running-code.md               # Advanced: geolocation, permissions, waits, iframes
-    ├── session-management.md         # Named sessions, concurrent automation
-    ├── storage-state.md              # Cookies, localStorage, sessionStorage
-    ├── tracing.md                    # Execution traces for debugging
-    ├── video-recording.md            # Record sessions as WebM
-    └── request-mocking.md            # Intercept, mock, block network requests
-```
-
-> **Note:** The 7 reference files ship with the official `playwright-cli install --skills`. The custom value is in the SKILL.md rules, not the references.
-
-## Custom Skill vs Official Skill — QA Benchmark
-
-We tested both skill versions against a page with 21 intentional bugs (10 sections, clean HTML with no code comments hinting at bugs). Both ran in **sandbox mode** — no memory, no prior context, clean temp directory.
-
-### Results
-
-| Metric | Custom Skill | Official Skill |
-|--------|:-:|:-:|
-| **True Positives** | **19 / 21 (90%)** | **19 / 21 (90%)** |
-| **False Positives** | **3** | 9 |
-| **Precision** | **86%** | 68% |
-| **Time** | 3m 29s | 3m 30s |
-| **Tokens** | **43K** | 52K |
-
-Both found the same 19 real bugs and missed the same 2 (step data loss on back navigation, counter desync on rapid loading).
-
-### Where custom wins: precision
-
-The official skill reported 9 false positives (missing validation, misleading cursor styles, aria-label on close buttons, etc.) — valid observations but not actual bugs. The custom skill's token-efficiency rules kept it focused, producing only 3 false positives.
-
-### Where they're equal: recall
-
-Same 90% recall. The token rules don't help or hurt bug detection — they just reduce noise and cost.
-
-### Honest takeaway
-
-The custom skill doesn't find more bugs. It finds them **with less noise and fewer tokens**. If you care about precision and token cost, use this skill. If you just want bug coverage, the official skill works fine.
-
-## Playwright CLI vs Chrome Extension
-
-We also compared Playwright CLI (with custom skill) against the [Claude-in-Chrome](https://chromewebstore.google.com/detail/claude-in-chrome/flkfmibmamgolkkoeapdmcnikmhpmjgd) browser extension for QA, using the same test page and prompt. All runs used sandbox mode (no memory, clean session).
-
-### Results
-
-| Metric | Playwright CLI (custom) | Playwright CLI (official) | Chrome Extension |
-|--------|:-:|:-:|:-:|
-| **True Positives** | **19 / 21 (90%)** | **19 / 21 (90%)** | 13 / 21 (62%) |
-| **False Positives** | **3** | 9 | 12 |
-| **Precision** | **86%** | 68% | 52% |
-| **Recall** | **90%** | **90%** | 62% |
-| **Time** | 3m 29s | 3m 30s | 6m 29s |
-| **Tokens** | **43K** | 52K | 53K |
-
-### What Chrome Extension missed (8 bugs)
-
-| Bug | Why missed |
-|-----|-----------|
-| Typo "Succesfully" in success message | Not detected at all |
-| Wizard step indicator desyncs on Back | Reported different issue ("all steps visible") |
-| Modal overlay click-to-close broken | Not detected |
-| Modal focus trap missing | Reported "focus goes to body on close" (different bug) |
-| Badge low contrast (#bbf7d0 on #dcfce7) | Not detected |
-| Error div missing aria-live | Reported wrong element ("status badge") |
-| Counter desync on double-load | Reported "counter not accessible" (different bug) |
-| Step 2 data loss on Back | Not detected |
-
-### Chrome Extension false positives (12)
-
-Reported issues not in the bug manifest: form uses GET method, status header missing sort indicator, "no drag event handlers" (factually wrong), all wizard steps visible, no field validation, missing role=dialog, close button no aria-label, focus goes to body on close, counter not programmatically accessible, grid uses fixed columns, phone input not type=tel, status badge missing aria-live.
-
-### Why Playwright CLI wins for QA
-
-1. **`eval` is surgical** — directly queries DOM properties, CSS values, computed styles, aria attributes
-2. **Viewport resizing is native** — `resize 375 812` tests responsive bugs reliably
-3. **Source analysis** — can read and analyze full page source to find logic bugs in JavaScript
-4. **Lower token cost** — codegen suppression + eval-over-snapshot means more budget for actual testing
-
-### When Chrome Extension is better
-
-| Scenario | Why |
-|----------|-----|
-| Pages behind SSO/OAuth | Uses your real browser session |
-| Browser extension testing | Only real Chrome can test extensions |
-| Visual verification by human | You see what Claude sees in real-time |
-| Quick one-off checks | No setup, just point at the tab |
 
 ## Quick Reference
 
-### Core Workflow
-
 ```bash
+# Core workflow
 playwright-cli open https://example.com     # Open browser
 playwright-cli snapshot                      # Get element refs
 playwright-cli fill e1 "text" && click e3    # Interact
 playwright-cli eval "document.title"         # Verify (cheap)
 playwright-cli close                         # Done
-```
 
-### QA Testing
+# QA testing
+playwright-cli resize 375 812               # Test mobile
+playwright-cli screenshot --filename=m.png   # Capture evidence
+playwright-cli eval "document.querySelector('.badge')?.textContent"
 
-```bash
-playwright-cli open https://myapp.com
-playwright-cli snapshot
+# Sessions
+playwright-cli -s=auth open https://app.com  # Named session
+playwright-cli close-all                      # Cleanup
 
-# Test form
-playwright-cli fill e1 "test@email.com" && playwright-cli click e5
-playwright-cli eval "document.querySelector('.success')?.textContent"
-
-# Test responsive
-playwright-cli resize 375 812
-playwright-cli screenshot --filename=mobile.png
-playwright-cli resize 1920 1080
-
-# Check accessibility
-playwright-cli eval "document.querySelector('label[for]')?.htmlFor === document.querySelector('input')?.id"
-```
-
-### Session Management
-
-```bash
-playwright-cli -s=auth open https://app.com/login    # Named session
-playwright-cli -s=public open https://app.com         # Isolated session
-playwright-cli close-all                               # Cleanup
-```
-
-### Request Mocking
-
-```bash
+# Request mocking
 playwright-cli route "**/api/users" --body='[{"id":1}]' --content-type=application/json
-playwright-cli route "**/*.jpg" --status=404
-playwright-cli unroute
 ```
 
 ## Contributing
 
-PRs welcome for:
-- Token optimization techniques
-- Additional QA benchmark results
-- New reference guides
-- Bug fixes
+PRs welcome for token optimization techniques, benchmark results, and new reference guides.
 
 ## License
 
